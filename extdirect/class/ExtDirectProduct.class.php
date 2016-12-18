@@ -155,7 +155,7 @@ class ExtDirectProduct extends Product
                 //! Stock
                 if (isset($warehouse) && $warehouse != ExtDirectFormProduct::ALLWAREHOUSE_ID) {
                     if (ExtDirect::checkDolVersion() >= 3.5) {
-                        $this->load_stock();
+                        $this->load_stock('warehouseopen, warehouseinternal');
                     } 
                     if (ExtDirect::checkDolVersion() >= 3.8) {
                         $row->pmp = $this->pmp;
@@ -194,13 +194,12 @@ class ExtDirectProduct extends Product
                     //! Average price value for product entry into stock (PMP)
                     $row->pmp= $this->pmp;
                     if (! empty($conf->productbatch->enabled) && ! empty($batch)) {
-                        // fetch total qty of batch in all warehouses
+                        // fetch qty and warehouse of first batch found
                         $formProduct = new FormProduct($this->db);                        
                         if (ExtDirect::checkDolVersion() >= 3.5) {
-                            $this->load_stock();
+                            $this->load_stock('warehouseopen, warehouseinternal');
                         }
-                        $warehouses = $formProduct->loadWarehouses();
-                        $qty = 0;
+                        $warehouses = $formProduct->loadWarehouses($this->id, '', 'warehouseopen, warehouseinternal');
                         foreach ($formProduct->cache_warehouses as $warehouseId => $wh) {
                             if (! empty($this->stock_warehouse[$warehouseId]->id)) {
                                 $productBatch = new Productbatch($this->db);
@@ -211,11 +210,12 @@ class ExtDirectProduct extends Product
                                     $row->eatby = $productBatch->eatby;
                                     $row->batch = $productBatch->batch;
                                     $row->batch_info = $productBatch->import_key;
-                                    $qty = $qty + (float) $productBatch->qty;
+                                    $row->warehouse_id = $warehouseId;
+                                    $row->stock_reel = $productBatch->qty;
+                                    break;
                                 }
                             }
                         }
-                        $row->stock_reel = $qty;
                     } else {
                         $row->stock_reel = (float) $this->stock_reel;
                     }
@@ -223,7 +223,7 @@ class ExtDirectProduct extends Product
                     
                 //! Stock alert
                 $row->seuil_stock_alerte= $this->seuil_stock_alerte;
-                $row->warehouse_id=$warehouse;
+                if (empty($row->warehouse_id)) $row->warehouse_id = $warehouse;
                 //! Duree de validite du service
                 $row->duration_value= $this->duration_value;
                 //! Unite de duree
@@ -479,7 +479,7 @@ class ExtDirectProduct extends Product
                 // check batch or non batch
                 if (! empty($conf->productbatch->enabled) && !empty($param->batch)) {
                     //! Stock
-                    $this->load_stock();
+                    $this->load_stock('warehouseopen, warehouseinternal');
                     $originalQty = $param->stock_reel;
                     $stockQty = $this->stock_warehouse[$param->warehouse_id]->real;
                     $createNewBatchFromZeroStock = false;
@@ -804,10 +804,16 @@ class ExtDirectProduct extends Product
         $sql .= ' LEFT JOIN '.MAIN_DB_PREFIX.'product_stock as ps ON p.rowid = ps.fk_product';
         $sql .= ' LEFT JOIN '.MAIN_DB_PREFIX.'categorie_product as cp ON p.rowid = cp.fk_product';
         $sql .= ' LEFT JOIN '.MAIN_DB_PREFIX.'categorie as c ON c.rowid = cp.fk_categorie';
+        $sql .= ' LEFT JOIN '.MAIN_DB_PREFIX.'entrepot as e on ps.fk_entrepot = e.rowid';
         if ($multiprices) {
         	$sql .= ' LEFT JOIN '.MAIN_DB_PREFIX.'product_price as pp ON p.rowid = pp.fk_product';
         }
         $sql .= ' WHERE p.entity IN ('.getEntity('product', 1).')';
+        if ($conf->global->ENTREPOT_EXTRA_STATUS) {
+            $sql.= ' AND e.statut IN ('.Entrepot::STATUS_OPEN_ALL.','.Entrepot::STATUS_OPEN_INTERNAL.')';
+        } else {
+            $sql.= " AND e.statut > 0";
+        }
         if ($filterSize > 0) {
             // TODO improve sql command to allow random property type
             $sql .= ' AND (';
@@ -845,7 +851,7 @@ class ExtDirectProduct extends Product
                         if (! empty($conf->productbatch->enabled)) {
                             $sql .= " p.tobatch = 0 OR ps.rowid NOT IN (";
                             $sql .= " SELECT fk_product_stock FROM ".MAIN_DB_PREFIX."product_batch";
-                            $sql .= " WHERE ((batch = '' ) OR (batch IS NULL) OR (import_key = '' ) OR (import_key IS NULL)))";
+                            $sql .= " WHERE ((batch = '' ) OR (batch IS NULL)))";
                             $sql .= " AND ps.rowid IN (";
                             $sql .= " SELECT fk_product_stock FROM ".MAIN_DB_PREFIX."product_batch )";
                             $sql .= " AND (p.barcode <> '' OR p.barcode IS NOT NULL)";
@@ -857,7 +863,7 @@ class ExtDirectProduct extends Product
                         if (! empty($conf->productbatch->enabled)) {
                             $sql .= " (p.tobatch = 0 AND (p.barcode = '' OR p.barcode IS NULL)) OR ps.rowid IN (";
                             $sql .= " SELECT fk_product_stock FROM ".MAIN_DB_PREFIX."product_batch";
-                            $sql .= " WHERE ((batch = '' ) OR (batch IS NULL) OR (import_key = '' ) OR (import_key IS NULL)))";
+                            $sql .= " WHERE ((batch = '' ) OR (batch IS NULL)))";
                             $sql .= " OR p.barcode = '' OR p.barcode IS NULL";
                         } else {
                             $sql .= "p.barcode = '' OR p.barcode IS NULL";
@@ -978,15 +984,15 @@ class ExtDirectProduct extends Product
         if (empty($conf->productbatch->enabled) || empty($id) || !isset($warehouseId)) return PARAMETERERROR;
         
         $this->id = $id;
-        if (($res = $this->load_stock()) < 0) return $res; 
+        if (($res = $this->load_stock('warehouseopen, warehouseinternal')) < 0) return $res; 
                
         if ($warehouseId == ExtDirectFormProduct::ALLWAREHOUSE_ID) {
             require_once DOL_DOCUMENT_ROOT.'/product/class/html.formproduct.class.php';
             $formProduct = new FormProduct($this->db);
-            $formProduct->loadWarehouses($id);
+            $formProduct->loadWarehouses($id, '', 'warehouseopen, warehouseinternal');
             foreach ($formProduct->cache_warehouses as $warehouseId => $warehouse) {
                 if ($includeNoBatch) {
-                    $row->id = 'X';
+                    $row->id = 'X_'.$warehouseId;
                     $row->product_id = $id;
                     $row->batch_id = 0;
                     $row->batch = $langs->transnoentities('BatchDefaultNumber');
@@ -997,7 +1003,7 @@ class ExtDirectProduct extends Product
             }
         } else {
             if ($includeNoBatch) {
-                $row->id = 'X';
+                $row->id = 'X_'.$warehouseId;
                 $row->product_id = $id;
                 $row->batch_id = 0;
                 $row->batch = $langs->transnoentities('BatchDefaultNumber');
@@ -1269,18 +1275,29 @@ class ExtDirectProduct extends Product
                     $filename=$dir.'thumbs/'.$photo_parts['filename'].'_small.'.$photo_parts['extension'];
                 } else {
                     $filename=$dir.'thumbs/'.$photo_parts['filename'].'_mini.'.$photo_parts['extension'];
-                }                
-                $imgData = base64_encode(file_get_contents($filename));
-                $row->photo = 'data: '.dol_mimetype($filename).';base64,'.$imgData;
+                }
             } else if ($format == 'small') {
                 $filename=$dir.'thumbs/'.$photo_parts['filename'].'_small.'.$photo_parts['extension'];
+                if (!file_exists($filename)) {
+                    // no small thumb available, return original size for small pics (< 20KB) else return mini size
+                    if (dol_filesize($dir.$photoFile) > 20480) {
+                        $filename=$dir.'thumbs/'.$photo_parts['filename'].'_mini.'.$photo_parts['extension'];
+                        $row->photo_size = 'mini';
+                    } else {
+                        $filename=$dir.$photoFile;
+                        $row->photo_size = '';
+                    }
+                }
+            } else {
+                $filename=$dir.$photoFile;
+            }
+            if (file_exists($filename)) {
                 $imgData = base64_encode(file_get_contents($filename));
                 $row->photo = 'data: '.dol_mimetype($filename).';base64,'.$imgData;
             } else {
-                $filename=$dir.$photoFile;
-                $imgData = base64_encode(file_get_contents($filename));
-                $row->photo = 'data: '.dol_mimetype($filename).';base64,'.$imgData;
-            }                
+                $row->has_photo = 0;
+                $row->photo_size = '';
+            }
         }
     }
     
@@ -1303,7 +1320,7 @@ class ExtDirectProduct extends Product
         }
         
         if (empty($conf->product->multidir_output[(int) $this->entity])) {
-            $dir = DOL_DOCUMENT_ROOT.'/documents/produit'; // for unit testing
+            $dir = DOL_DATA_ROOT.'/produit'; // for unit testing
         } else {
             $dir = $conf->product->multidir_output[(int) $this->entity];
         }

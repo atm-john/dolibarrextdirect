@@ -689,7 +689,7 @@ class ExtDirectCommande extends Commande
                     $myprod = new ExtDirectProduct($this->_user->login);
                     if (!$isFreeLine && ($result = $myprod->fetch($line->fk_product)) < 0) return $result;
                     if (ExtDirect::checkDolVersion() >= 3.5) {
-                        if (!$isFreeLine && ($result = $myprod->load_stock()) < 0) return $result;
+                        if (!$isFreeLine && ($result = $myprod->load_stock('warehouseopen')) < 0) return $result;
                     } 
                     if ($line->product_type == 1) {
                     	$isService = true;
@@ -963,6 +963,7 @@ class ExtDirectCommande extends Commande
                     $orderLine->pa_ht,
                     $orderLine->label
                 )) < 0) return ExtDirect::getDolError($result, $this->errors, $this->error);
+                $params->id=$result;
             } else {
                 if (($result = $this->addline(
                     $orderLine->fk_commande,
@@ -988,7 +989,7 @@ class ExtDirectCommande extends Commande
                     $orderLine->pa_ht,
                     $orderLine->label
                 )) < 0) return ExtDirect::getDolError($result, $this->errors, $this->error);
-            }            
+            }
         }
     
         if (is_array($param)) {
@@ -1105,7 +1106,11 @@ class ExtDirectCommande extends Commande
             if ($params->origin_line_id) {
                 // delete 
                 $this->id = $params->origin_id;
-                if (($result = $this->deleteline($params->origin_line_id)) < 0) return ExtDirect::getDolError($result, $this->errors, $this->error);
+                if (ExtDirect::checkDolVersion(0,'5.0','')) {
+                	if (($result = $this->deleteline($this->_user, $params->origin_line_id)) < 0) return ExtDirect::getDolError($result, $this->errors, $this->error);
+                } else {
+                	if (($result = $this->deleteline($params->origin_line_id)) < 0) return ExtDirect::getDolError($result, $this->errors, $this->error);
+                }
             } else {
                 return PARAMETERERROR;
             }

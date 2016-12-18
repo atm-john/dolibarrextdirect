@@ -517,7 +517,7 @@ class ExtDirectCommandeFournisseur extends CommandeFournisseur
                         $myprod = new ExtDirectProduct($this->_user->login);
                         if (($result = $myprod->fetch($line->fk_product)) < 0) return $result;
                         if (ExtDirect::checkDolVersion() >= 3.5) {
-                            if (($result = $myprod->load_stock()) < 0) return $result;
+                            if (($result = $myprod->load_stock('warehouseopen')) < 0) return $result;
                         }
                         
                         if (!empty($warehouse_id) || ($myprod->stock_reel == 0)) {
@@ -667,7 +667,8 @@ class ExtDirectCommandeFournisseur extends CommandeFournisseur
                 false,
                 $orderLine->date_start,
                 $orderLine->date_end
-            )) < 0) return ExtDirect::getDolError($result, $this->errors, $this->error);            
+            )) < 0) return ExtDirect::getDolError($result, $this->errors, $this->error);   
+            $params->id = $result;         
         }
     
         if (is_array($param)) {
