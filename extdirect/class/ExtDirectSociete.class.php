@@ -34,7 +34,7 @@ dol_include_once('/extdirect/class/extdirect.class.php');
 class ExtDirectSociete extends Societe
 {
     private $_user;
-    private $_constants = ['SOCIETE_CODECLIENT_ADDON'];
+    private $_constants = array('SOCIETE_CODECLIENT_ADDON');
         
     /** Constructor
      *
